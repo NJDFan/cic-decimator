@@ -9,11 +9,15 @@ authors = [
 	{name = "Rob Gaddi", email="rgaddi@highlandtechnology.com"}
 ]
 
+dependencies = [
+	"Jinja2 ~= 3.1.2"
+]
+
 [project.urls]
 "Homepage" = "https://github.com/NJDFan/cic-decimator"
 
 [project.scripts]
-cic-decimator = "cicdecimator:main"
+generate-cic-decimator = "cicdecimator:main"
 
 [build-system]
 # These are the assumed default build requirements from pip:
