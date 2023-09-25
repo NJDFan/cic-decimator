@@ -104,12 +104,11 @@ def generate_cic(ns):
     """Generate and write out the CIC filter and testbench.
     """
     
-    # Determine the range of possible values at each step
-    stage_growth = [ns.ratio**n for n in range(ns.stages+1)]
-    stage_min    = [ns.input_min * g for g in stage_growth]
-    stage_max    = [ns.input_max * g for g in stage_growth]
+    # Calculate bit growth and final value size.
+    growth = ns.ratio**ns.stages
+    output_min = ns.input_min * growth
+    output_max = ns.input_max * growth
     
-    # And the datatypes for each step
     if ns.dtype == 'unsigned':
         def bits(x, y):
             return y.bit_length()
@@ -118,21 +117,26 @@ def generate_cic(ns):
             bx = x.bit_length() + (0 if x < 0 else 1)
             by = y.bit_length() + (0 if y < 0 else 1)
             return bx if bx > by else by
-
-    stage_bits = [bits(*p) for p in zip(stage_min, stage_max)]
-    stage_dtype = [f'{ns.dtype}({b-1} downto 0)' for b in stage_bits]
     
-    for (x, y, t) in zip(stage_min, stage_max, stage_dtype):
-        print(f'{t}:  {x}-{y}')
+    input_bits = bits(ns.input_min, ns.input_max)
+    output_bits = bits(output_min, output_max)
+    
+    input_dtype = f'{ns.dtype}({input_bits-1} downto 0)'
+    output_dtype = f'{ns.dtype}({output_bits-1} downto 0)'
     
     tp_vars = vars(ns)
-    tp_vars['stage_dtype'] = stage_dtype
-    tp_vars['stage_min'] = stage_min
-    tp_vars['stage_max'] = stage_max
+    tp_vars.update({
+        'ns' : ns,
+        'input_dtype'  : input_dtype,
+        'output_dtype' : output_dtype,
+        'output_min' : output_min,
+        'output_max' : output_max
+    })
     
     template = env.get_template('filter.vhd')
-    print(template.render(vars(ns)))
-    
+    with open(ns.filter_file, 'w') as f:
+        print(template.render(tp_vars), file=f)
+    print(f"Wrote {ns.name} to {ns.filter_file}")
         
 def main(args=None):
     ns = parse_arguments(args)
