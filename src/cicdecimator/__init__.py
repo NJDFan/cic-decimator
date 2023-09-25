@@ -14,7 +14,7 @@ env = Environment(
     lstrip_blocks=True,
 )
 
-def parse_arguments(args:list[str] = None):
+def parse_arguments(args = None):
     """Parse all command-line arguments, return namespace object.
     
     This also performs all the secondary checking, defaulting,

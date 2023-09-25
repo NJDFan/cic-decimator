@@ -44,8 +44,13 @@ architecture Behavioral of {{ name }} is
     signal comb       : ta_dtype := DATA_RESET;
     signal comb_x     : ta_dtype := DATA_RESET;
     
+    -- High when a given stage in either the integrator or comb has newly
+    -- updated data.
     signal int_flag   : std_logic_vector({{stages}} downto 1) := (others => '0');
     signal comb_flag  : std_logic_vector({{stages}} downto 1) := (others => '0');
+
+    -- High when the next int_flag'high should cause the combs to fire.
+    signal decimate_flag : std_logic;
 
 begin
 
@@ -94,6 +99,41 @@ begin
         end if;
     end process INTEGRATORS;
     
+    DECIMATION_COUNTER: process(clk {{", arst" if async_reset}})
+        variable counter : integer range 0 to {{ratio-1}} := 0;
+    begin
+         {% if async_reset %}
+        -- Asynchronous reset
+        if (arst = '1') then
+            counter := 0;
+            decimate_flag <= '0';
+            
+        elsif rising_edge(clk) then
+        {% else %}
+        if rising_edge(clk) then
+        {% endif %}
+            if int_flag(int_flag'high) = '1' then
+                decimate_flag <= '0';
+                case counter is
+                    when {{ratio - 1}} =>
+                        counter := 0;
+                    when {{ratio - 2}} =>
+                        counter := counter + 1;
+                        decimate_flag <= '1';
+                    when others =>
+                        counter := counter + 1;
+                end case;
+            end if;
+            
+            {% if not async_reset %}
+            -- Synchronous reset
+            if rst = '1' then
+                counter := 0;
+                decimate_flag <= '0';
+            end if;
+            {% endif %}
+        end if;
+    end process DECIMATION_COUNTER;
     
     COMBS: process(clk {{", arst" if async_reset}})
         variable data  : tex_dtype;
@@ -112,7 +152,7 @@ begin
         {% endif %}
             -- Update the comb data
             data := comb & integrator(integrator'high);
-            flag := comb_flag & int_flag(int_flag'high);
+            flag := comb_flag & (int_flag(int_flag'high) and decimate_flag);
             
             for i in comb'range loop
                 if flag(i-1) = '1' then
