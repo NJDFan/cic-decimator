@@ -87,7 +87,7 @@ begin
             end loop;
             
             -- Shift the data valid shift register
-            int_flag <= flag({{stages-1}} downto 0);
+            int_flag <= flag(int_flag'high-1 downto 0);
             
             {% if not async_reset %}
             -- Synchronous reset
@@ -102,7 +102,7 @@ begin
     DECIMATION_COUNTER: process(clk {{", arst" if async_reset}})
         variable counter : integer range 0 to {{ratio-1}} := 0;
     begin
-         {% if async_reset %}
+        {% if async_reset %}
         -- Asynchronous reset
         if (arst = '1') then
             counter := 0;
@@ -162,7 +162,7 @@ begin
             end loop;
             
             -- Shift the data valid shift register
-            comb_flag <= flag({{stages-1}} downto 0);
+            comb_flag <= flag(comb_flag'high-1 downto 0);
             
             {% if not async_reset %}
             -- Synchronous reset

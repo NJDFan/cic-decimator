@@ -14,6 +14,13 @@ env = Environment(
     lstrip_blocks=True,
 )
 
+def binstring(value, bits):
+    """Turn value into a str bits long, handling two's compliment."""
+    if value < 0:
+        value = (2**bits) + value
+    return f"{value:0{bits}b}"
+env.filters['binstring'] = binstring
+
 def parse_arguments(args = None):
     """Parse all command-line arguments, return namespace object.
     
@@ -63,7 +70,7 @@ def parse_arguments(args = None):
         help='Filename for CIC filter. Default is <entity name>.vhd'
     )
     parser.add_argument('--tb-file',
-        help='Filename for testbench. Default is <entity name>_tb.vhd'
+        help='Filename for testbench. Default is tb_<entity name>.vhd'
     )
     
     ns = parser.parse_args(args)
@@ -95,13 +102,15 @@ def parse_arguments(args = None):
     if not ns.filter_file:
         ns.filter_file = ns.name + '.vhd'
     if not ns.tb_file:
-        ns.tb_file = ns.name + '_tb.vhd'
+        ns.tb_file = 'tb_' + ns.name + '.vhd'
     
     ns.program = parser.prog
     return ns
     
 def generate_cic(ns):
     """Generate and write out the CIC filter and testbench.
+    
+    Returns a dict of the values passed to the template.
     """
     
     # Calculate bit growth and final value size.
@@ -130,7 +139,11 @@ def generate_cic(ns):
         'input_dtype'  : input_dtype,
         'output_dtype' : output_dtype,
         'output_min' : output_min,
-        'output_max' : output_max
+        'output_max' : output_max,
+        'input_bits' : input_bits,
+        'output_bits' : output_bits,
+        'now': asctime(),
+        'program': ns.program
     })
     
     template = env.get_template('filter.vhd')
@@ -138,11 +151,13 @@ def generate_cic(ns):
         print(template.render(tp_vars), file=f)
     print(f"Wrote {ns.name} to {ns.filter_file}")
         
+    template = env.get_template('testbench.vhd')
+    with open(ns.tb_file, 'w') as f:
+        print(template.render(tp_vars), file=f)
+    print(f"Wrote tb_{ns.name} to {ns.tb_file}")
+    
+    return tp_vars
+        
 def main(args=None):
-    ns = parse_arguments(args)
-    print(ns)
-    
-    env.globals['now'] = asctime()
-    env.globals['program'] = ns.program
-    
-    gen = generate_cic(ns)
+    ns = parse_arguments(args)    
+    generate_cic(ns)
