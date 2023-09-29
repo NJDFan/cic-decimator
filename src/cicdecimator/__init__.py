@@ -58,6 +58,9 @@ def parse_arguments(args = None):
     parser.add_argument('--async-reset',
         action='store_true', help="Use an asynchronous reset."
     )
+    parser.add_argument('--osvvm',
+        action='store_true', help="Use OSVVM assertion tools."
+    )
     
     # Arguments about the environment.
     parser.add_argument('--work',

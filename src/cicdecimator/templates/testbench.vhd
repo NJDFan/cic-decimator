@@ -18,6 +18,11 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+{% if osvvm %}
+library osvvm;
+context osvvm.OsvvmContext;
+{% endif %}
+
 {% if (work != "work") %}
 library {{ work }};
 {% endif %}
@@ -33,19 +38,6 @@ architecture Testbench of tb_{{ name }} is
     signal out_valid   : std_logic;
     signal clk, {{ "arst" if async_reset else "rst" }} : std_logic;
 
-    component {{ name }} is
-        port (
-            in_data     : in  {{ input_dtype }};
-            in_valid    : in  std_logic;
-            out_data    : out {{ output_dtype }};
-            out_valid   : out std_logic;
-        
-            clk : in std_logic;
-            {{ "arst" if async_reset else "rst" }} : in std_logic
-        );
-    end component {{ name }};
-    for DUT: {{ name }} use entity {{ work }}.{{ name }}(Behavioral);
-
     signal clock_running : boolean;
     signal tClk : time := 10 ns;
 
@@ -58,7 +50,7 @@ architecture Testbench of tb_{{ name }} is
 
 begin
 
-    DUT: {{ name }}
+    DUT: entity {{ work }}.{{ name }}
         port map (
             in_data     => in_data,
             in_valid    => in_valid,
@@ -78,8 +70,23 @@ begin
         wait for tClk;
     end process CLOCK;
     
+    {%if osvvm %}
+    {% macro assertions(value) %}
+        AffirmIf(?? out_valid, "out_valid");
+        AffirmIfEqual(out_data, {{ value }}, "out_data");
+    {% endmacro %}
+    {% else %}
+    {% macro assertions(value) %}
+        assert out_valid = '1' report "out_valid";
+        assert out_data = {{ value }} report "out_data @ {{ value }}";
+    {%- endmacro %}
+    {% endif %}
+    
     BENCH: process
     begin
+        {% if osvvm %}
+        TranscriptOpen("./results/tb_{{ name }}.txt");
+        {% endif %}
         clock_running <= true;
         in_data <= INPUT_MIN;
         in_valid <= '0';
@@ -92,8 +99,7 @@ begin
         wait for tClk * {{stages * ratio}};
         in_valid <= '0';
         wait for tClk * {{stages * 2 - 1}};
-        assert out_valid = '1' report "out_valid";
-        assert out_data = OUTPUT_MIN report "out_data @ input_min";
+{{ assertions('OUTPUT_MIN') }}
         
         -- Slam the input to the maximum instead and repeat.
         in_data <= INPUT_MAX;
@@ -101,8 +107,7 @@ begin
         wait for tClk * {{stages * ratio}};
         in_valid <= '0';
         wait for tClk * {{stages * 2 - 1}};
-        assert out_valid = '1' report "out_valid";
-        assert out_data = OUTPUT_MAX;
+{{ assertions('OUTPUT_MAX') }}
         
         -- Slam the input back to the minimum again for one more check.
         in_data <= INPUT_MIN;
@@ -110,10 +115,12 @@ begin
         wait for tClk * {{stages * ratio}};
         in_valid <= '0';
         wait for tClk * {{stages * 2 - 1}};
-        assert out_valid = '1' report "out_valid";
-        assert out_data = OUTPUT_MIN;
+{{ assertions('OUTPUT_MIN') }}
     
         clock_running <= false;
+        {% if osvvm %}
+        ReportAlerts;
+        {% endif %}
         wait;
     end process BENCH;
     
