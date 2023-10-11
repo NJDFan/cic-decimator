@@ -1,6 +1,6 @@
 [project]
-name = "cic-decimator"
-version = "0.0.1.dev1"
+name = "cicdecimator"
+version = "0.0.1.dev2"
 description = "VHDL CIC decimator generator"
 readme = "README.md"
 requires-python = ">=3.8.10"
@@ -17,7 +17,7 @@ dependencies = [
 "Homepage" = "https://github.com/NJDFan/cic-decimator"
 
 [project.scripts]
-generate-cic-decimator = "cicdecimator:main"
+generate-cic-decimator = "cicdecimator:cmdline.main"
 
 [build-system]
 # These are the assumed default build requirements from pip:
