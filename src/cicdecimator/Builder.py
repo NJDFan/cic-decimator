@@ -1,6 +1,7 @@
 from math import log2, ceil
 from time import asctime
 from jinja2 import Environment, PackageLoader, select_autoescape, StrictUndefined
+import numpy as np
 
 import dataclasses
 
@@ -33,8 +34,18 @@ class Builder:
     name        : str = 'cic_decimator'
     program     : str = __name__
     
+    # Track whether this data has been cooked yet
+    _cooked = False
+    
+    def __setattr__(self, attr, value):
+        if attr != '_cooked':
+            self._cooked = False
+        self.__dict__[attr] = value
+    
     def _cook(self):
         """Calculate all values that need calculating."""
+        if self._cooked:
+            return
         
         # Calculate bit growth and final value size.
         growth = self.ratio**self.stages
@@ -55,13 +66,31 @@ class Builder:
         
         self.input_dtype = f'{self.dtype}({self.input_bits-1} downto 0)'
         self.output_dtype = f'{self.dtype}({self.output_bits-1} downto 0)'
+        
+        self._cooked = True
     
-    def generate_filter(self, output=None) -> str:
+    def H(self, z):
+        """Transfer function in the Z-domain (relative to input signal)."""
+        za = np.asanyarray(z, dtype=np.cfloat)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            H = ((1-za**-self.ratio)/(1-za**-1))
+        return np.where(np.isnan(H), self.ratio, H) ** self.stages
+    
+    def ampl(self, f):
+        """Amplitude in the digital frequency domain (1.0 = input sampling freq)."""
+        
+        w = np.asanyarray(f, dtype=float) * np.pi
+        with np.errstate(divide='ignore', invalid='ignore'):
+            H = np.sin(w * self.ratio) / np.sin(w)
+        return np.where(np.isnan(H), self.ratio, np.abs(H)) ** self.stages
+    
+    def delay(self):
+        """Returns the group-delay of the filter, in input samples."""
+        return (self.ratio * self.stages) / 2
+    
+    def generate_filter(self) -> str:
         """Generate the synthesizable filter VHDL.
         
-        Args:
-            output: If present, should be an open writable file.
-            
         Returns:
             The VHDL as a string.
         """
@@ -74,9 +103,6 @@ class Builder:
     def generate_testbench(self) -> str:
         """Generate the VHDL testbench code.
         
-        Args:
-            output: If present, should be an open writable file.
-            
         Returns:
             The VHDL as a string.
         """
@@ -89,6 +115,7 @@ class Builder:
     def copy(self, **kwargs):
         """Make a copy of this Builder, with any changes specified in kwargs."""
         
+        self._cook()
         d = dataclasses.asdict(self)
         d.update(kwargs)
         
