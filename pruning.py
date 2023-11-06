@@ -1,4 +1,4 @@
-"""
+"""=16
 Investigate Hogenaur pruning.
 
 This code will all get integrated later, but right now it's an attempt
@@ -9,15 +9,15 @@ to square up with Rick Lyon's code.
 import numpy as np
 from scipy.special import binom
 
-R=25
+R=128
 M=1
-N=4
-N = 3;  R = 16;  M = 1;  Bin = 16;  Bout = 16
+N=3
 
-B_out = Bout
+B_in=16
+B_out=16
 
 bit_growth = np.ceil(np.log2((R*M)**N))
-B_max = Bin + bit_growth - 1
+B_max = B_in + bit_growth - 1
 
 # Preallocate the F_j array
 F_j = np.zeros(2*N+1)
@@ -48,11 +48,28 @@ truncation_noise_var = 2**(2*bits_truncated)/12
 truncation_noise_std = np.sqrt(truncation_noise_var)
 
 # Calculate bits truncated.  This fails on the final
-# truncation, which we patch manually
+# truncation, which we patch manually.
+#
+# This number is the total number of pruned bits from
+# internal_bits at any given stage, not the incremental
+# number of bits pruned.
+#
 B_j = np.floor(
     -np.log2(F_j) +
     np.log2(truncation_noise_std) +
     (np.log2(6/N) / 2)
-)
+).astype(int)
 B_j[-1] = bits_truncated
-print(B_j)
+
+# Pruning the input stage (B_j[0]) just feels gross.
+# And other stages can come up with negative stage
+# growth if the filter is relying on the growth to
+# begin with.
+# 
+B_j[0] = 0
+B_j[B_j < 0] = 0
+print('Bits saved per stage:', B_j, 'Total:', np.sum(B_j))
+
+# Leading to a final number of accumulator bits
+print('Bits left per stage:', internal_bits - B_j[:-1], B_out)
+

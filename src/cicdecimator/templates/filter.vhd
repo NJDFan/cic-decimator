@@ -38,9 +38,9 @@ use ieee.numeric_std.all;
 
 entity {{ name }} is
     port (
-        in_data     : in  {{ input_dtype }};
+        in_data     : in  {{ dtype }}({{ input_bits-1 }} downto 0);
         in_valid    : in  std_logic;
-        out_data    : out {{ output_dtype }};
+        out_data    : out {{ dtype }}({{ output_bits-1 }} downto 0);
         out_valid   : out std_logic;
     
         clk : in std_logic;
@@ -50,7 +50,12 @@ end entity {{ name }};
 
 architecture Behavioral of {{ name }} is
 
-    subtype dtype is {{ output_dtype }};
+    {% for w in stage_widths %}
+    signal data{{ loop.index0 }} : {{ dtype }}({{ w-1 }} downto 0);
+    {% endfor %}
+
+
+    subtype dtype is {{ dtype }}({{ output_bits-1 }} downto 0);
     type dtype_array is array(natural range <>) of dtype;
     subtype ta_dtype  is dtype_array({{stages}} downto 1);
     subtype tex_dtype is dtype_array({{stages}} downto 0);
@@ -63,71 +68,91 @@ architecture Behavioral of {{ name }} is
     -- High when a given stage in either the integrator or comb has newly
     -- updated data.
     signal int_flag   : std_logic_vector({{stages}} downto 1) := (others => '0');
-    signal comb_flag  : std_logic_vector({{stages}} downto 1) := (others => '0');
+    signal comb_flag  : std_logic_vector({{stages}} downto 0) := (others => '0');
 
     -- High when the next int_flag'high should cause the combs to fire.
     signal decimate_flag : std_logic;
 
+    signal async_r, sync_r : boolean;
+
+    function drop_lsbs(x, ref : {{dtype}}) return {{dtype}} is
+    begin
+        if x'length < ref'length then
+            return RESIZE(x, ref'length);
+        else
+            return RESIZE(SHIFT_RIGHT(x, x'length-ref'length), ref'length);
+        end if;
+    end function drop_lsbs;
+
 begin
+
+    -- Reset conditioning
+    {% if async_reset %}
+    async_r <= (arst = '1');
+    sync_r  <= false;
+    {% else %}
+    async_r <= false;
+    sync_r  <= (rst = '1');
+    {% endif %}
 
     -- For any CIC filter the integrators run on the fast
     -- side, and the combs run on the slow side.  This being
     -- a decimating filter, that puts the integrators on the
     -- input and the combs on the output.
-
-    INTEGRATORS: process(clk {{", arst" if async_reset}})
-        variable d     : dtype;
-        variable data  : tex_dtype;
-        variable flag  : std_logic_vector({{stages}} downto 0);
-    begin
-        {% if async_reset %}
-        -- Asynchronous reset
-        if (arst = '1') then
-            int_flag   <= (others => '0');
-            integrator <= DATA_RESET;
-            
-        elsif rising_edge(clk) then
-        {% else %}
-        if rising_edge(clk) then
-        {% endif %}
-            -- Update the integrator data
-            d := RESIZE(in_data, out_data'length);
-            data(integrator'range) := integrator;
-            data(0) := d;
-            flag := int_flag & in_valid;
-            
-            for i in integrator'range loop
-                if flag(i-1) = '1' then
-                    integrator(i) <= data(i) + data(i-1);
-                end if;
-            end loop;
-            
-            -- Shift the data valid shift register
-            int_flag <= flag(int_flag'high-1 downto 0);
-            
-            {% if not async_reset %}
-            -- Synchronous reset
-            if rst = '1' then
-                int_flag   <= (others => '0');
-                integrator <= DATA_RESET;
-            end if;
-            {% endif %}
-        end if;
-    end process INTEGRATORS;
     
-    DECIMATION_COUNTER: process(clk {{", arst" if async_reset}})
+    -----------------------------------------------------------------------
+    --  Integrators
+    -----------------------------------------------------------------------
+    
+    SHIFT_INT_FLAG: process(clk, async_r)
+    begin
+        if async_r then
+            int_flag <= (others => '0');
+        elsif rising_edge(clk) then
+            int_flag <= int_flag({{stages-1}} downto 1) & in_valid;
+            if sync_r then
+                int_flag <= (others => '0');
+            end if;
+        end if;
+    end process SHIFT_INT_FLAG;
+    
+    {% for i in range(stages) %}
+    
+    INTEGRATOR{{ i }}: process(clk, async_r)
+        variable trunc_data : {{dtype}}(data{{i}}'range); 
+    begin
+        if async_r then
+            data{{i}} <= (others => '0');
+        elsif rising_edge(clk) then
+            {% if i == 0 %}
+            if (in_valid = '1') then
+                data{{i}} <= data{{i}} + drop_lsbs(in_data, data{{i}});
+            {% else %}
+            if (int_flag({{i}}) = '1') then
+                data{{i}} <= data{{i}} + drop_lsbs(data{{i-1}}, data{{i}});
+            {% endif %}
+            end if;
+            if sync_r then
+                data{{i}} <= (others => '0');
+            end if;
+        end if;
+    end process INTEGRATOR{{ i }};
+        
+    {% endfor %}
+
+    -----------------------------------------------------------------------
+    --  Decimation
+    -----------------------------------------------------------------------
+    
+    DECIMATION_COUNTER: process(clk, async_r)
         variable counter : integer range 0 to {{ratio-1}} := 0;
     begin
-        {% if async_reset %}
         -- Asynchronous reset
-        if (arst = '1') then
+        if async_r then
             counter := 0;
             decimate_flag <= '0';
             
         elsif rising_edge(clk) then
-        {% else %}
-        if rising_edge(clk) then
-        {% endif %}
             if int_flag(int_flag'high) = '1' then
                 decimate_flag <= '0';
                 case counter is
@@ -141,15 +166,17 @@ begin
                 end case;
             end if;
             
-            {% if not async_reset %}
-            -- Synchronous reset
-            if rst = '1' then
+            if sync_r then
                 counter := 0;
                 decimate_flag <= '0';
             end if;
-            {% endif %}
         end if;
     end process DECIMATION_COUNTER;
+    
+    -----------------------------------------------------------------------
+    --  Combs
+    -----------------------------------------------------------------------
+    
     
     COMBS: process(clk {{", arst" if async_reset}})
         variable data  : tex_dtype;
