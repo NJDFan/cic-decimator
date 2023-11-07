@@ -66,12 +66,15 @@ architecture Behavioral of {{ name }} is
     signal comb_x     : ta_dtype := DATA_RESET;
     
     -- High when a given stage in either the integrator or comb has newly
-    -- updated data.
-    signal int_flag   : std_logic_vector({{stages}} downto 1) := (others => '0');
-    signal comb_flag  : std_logic_vector({{stages}} downto 0) := (others => '0');
-
-    -- High when the next int_flag'high should cause the combs to fire.
-    signal decimate_flag : std_logic;
+    -- available data.  Index matches with the stage number; highest is
+    -- the output data valid.
+    signal stage_flag       : std_logic_vector({{stages*2}} downto 0) := (others => '0');
+    signal stage_flag_reg   : std_logic_vector({{stages*2}} downto 1) := (others => '0');
+    
+    -- High when the next data through the integrators should cause the
+    -- combs to fire.
+    signal counter : integer range 0 to {{ratio-1}} := 0;
+    signal decimate_flag : boolean;
 
     signal async_r, sync_r : boolean;
 
@@ -95,6 +98,25 @@ begin
     sync_r  <= (rst = '1');
     {% endif %}
 
+    -- Walk a data ready flag through the stages
+    SHIFT_FLAG: process(clk, async_r)
+    begin
+        if async_r then
+            stage_flag_reg <= (others => '0');
+        elsif rising_edge(clk) then
+            stage_flag_reg <= stage_flag({{stages*2-1}} downto 0);
+            
+            -- Comb flags only set when the decimator allows it
+            if not decimate_flag then
+                stage_flag_reg({{stages}}) <= '0';
+            end if;
+            
+            if sync_r then
+                stage_flag_reg <= (others => '0');
+            end if;
+        end if;
+    end process SHIFT_FLAG;
+
     -- For any CIC filter the integrators run on the fast
     -- side, and the combs run on the slow side.  This being
     -- a decimating filter, that puts the integrators on the
@@ -104,31 +126,17 @@ begin
     --  Integrators
     -----------------------------------------------------------------------
     
-    SHIFT_INT_FLAG: process(clk, async_r)
-    begin
-        if async_r then
-            int_flag <= (others => '0');
-        elsif rising_edge(clk) then
-            int_flag <= int_flag({{stages-1}} downto 1) & in_valid;
-            if sync_r then
-                int_flag <= (others => '0');
-            end if;
-        end if;
-    end process SHIFT_INT_FLAG;
-    
     {% for i in range(stages) %}
     
     INTEGRATOR{{ i }}: process(clk, async_r)
-        variable trunc_data : {{dtype}}(data{{i}}'range); 
     begin
         if async_r then
             data{{i}} <= (others => '0');
         elsif rising_edge(clk) then
+            if (stage_flag({{i}}) = '1') then
             {% if i == 0 %}
-            if (in_valid = '1') then
                 data{{i}} <= data{{i}} + drop_lsbs(in_data, data{{i}});
             {% else %}
-            if (int_flag({{i}}) = '1') then
                 data{{i}} <= data{{i}} + drop_lsbs(data{{i-1}}, data{{i}});
             {% endif %}
             end if;
@@ -147,78 +155,62 @@ begin
     DECIMATION_COUNTER: process(clk, async_r)
         variable counter : integer range 0 to {{ratio-1}} := 0;
     begin
-        -- Asynchronous reset
         if async_r then
-            counter := 0;
-            decimate_flag <= '0';
+            counter <= 0;
             
         elsif rising_edge(clk) then
-            if int_flag(int_flag'high) = '1' then
-                decimate_flag <= '0';
-                case counter is
-                    when {{ratio - 1}} =>
-                        counter := 0;
-                    when {{ratio - 2}} =>
-                        counter := counter + 1;
-                        decimate_flag <= '1';
-                    when others =>
-                        counter := counter + 1;
-                end case;
+            if stage_flag({stages-1}) = '1' then
+                if decimate_flag then
+                    counter <= 0;
+                else
+                    counter <= counter + 1;
+                end if;
             end if;
             
             if sync_r then
-                counter := 0;
-                decimate_flag <= '0';
+                counter <= 0;
             end if;
         end if;
     end process DECIMATION_COUNTER;
+    
+    decimate_flag <= (counter = {{ratio-1}});
     
     -----------------------------------------------------------------------
     --  Combs
     -----------------------------------------------------------------------
     
+    {% for i in range(stages, stages*2) %}
     
-    COMBS: process(clk {{", arst" if async_reset}})
-        variable data  : tex_dtype;
-        variable flag  : std_logic_vector({{stages}} downto 0);
+    COMB{{i}}: process(clk, async_r)
+        variable last : {{dtype}}(data{{i}}'range); 
     begin
-        {% if async_reset %}
-        -- Asynchronous reset
-        if (arst = '1') then
-            comb_flag <= (others => '0');
-            comb <= DATA_RESET;
-            comb_x <= DATA_RESET;
+        if async_r then
+            last := (others => '0');
+            data{{i}} <= (others => '0');
             
         elsif rising_edge(clk) then
-        {% else %}
-        if rising_edge(clk) then
-        {% endif %}
-            -- Update the comb data
-            data := comb & integrator(integrator'high);
-            flag := comb_flag & (int_flag(int_flag'high) and decimate_flag);
-            
-            for i in comb'range loop
-                if flag(i-1) = '1' then
-                    comb(i) <= data(i-1) - comb_x(i);
-                    comb_x(i) <= data(i-1);
-                end if;
-            end loop;
-            
-            -- Shift the data valid shift register
-            comb_flag <= flag(comb_flag'high-1 downto 0);
-            
-            {% if not async_reset %}
-            -- Synchronous reset
-            if rst = '1' then
-                comb_flag <= (others => '0');
-                comb <= DATA_RESET;
-                comb_x <= DATA_RESET;
+            if (stage_flag({{i}}) = '1') then
+                data{{i}} <= drop_lsbs(data{{i-1}}, last) - last;
+                last := drop_lsbs(data{{i-1}}, last);
             end if;
-            {% endif %}
+            
+            if sync_r then
+                last := (others => '0');
+                data{{i}} <= (others => '0');
+            end if;
         end if;
-    end process COMBS;
+    end process COMB{{i}};
+        
+    {% endfor %}
     
-    out_data  <= comb(comb'high);
-    out_valid <= comb_flag(comb_flag'high);
+    -- Final data truncation
+    data{{stages*2}} <= drop_lsbs(data{{stages*2-1}}, data{{stages*2}});
+    
+    -----------------------------------------------------------------------
+    --  Data outputs
+    -----------------------------------------------------------------------
+    
+    out_data  <= data{{stages*2}};
+    out_valid <= stage_flag({{stages*2}});
 
 end architecture Behavioral;

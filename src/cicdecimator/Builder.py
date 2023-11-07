@@ -83,6 +83,9 @@ class Builder:
             self.calculate_untrimmed_stages()
         else:
             self.calculate_trimmed_stages()
+            degain = 2**(self.internal_bits - output_width)
+            self.output_min //= degain
+            self.output_max //= degain
         
         self._cooked = True
     
@@ -90,7 +93,7 @@ class Builder:
         """Calculate self.stage_widths with no bit trimming, and
         potential expansion into the last stage."""
         
-        self.stage_widths = np.ones(self.stages * 2 + 1) * self.internal_bits
+        self.stage_widths = np.ones(self.stages * 2 + 1, dtype=int) * self.internal_bits
         self.stage_widths[-1] = self.output_bits
     
     def calculate_trimmed_stages(self):
