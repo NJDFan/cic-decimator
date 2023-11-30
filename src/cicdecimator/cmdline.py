@@ -50,6 +50,9 @@ def parse_arguments(args = None):
     parser.add_argument('--osvvm',
         action='store_true', help="Use OSVVM assertion tools."
     )
+    parser.add_argument('--output-bits', type=int, default=None,
+        help="Force filter output width, enabling intermediate bit pruning."
+    )
     
     # Arguments about the environment.
     parser.add_argument('--work',
@@ -112,7 +115,8 @@ def main(args=None):
         osvvm       = ns.osvvm,
         work        = ns.work,
         name        = ns.name,
-        program     = ns.program
+        program     = ns.program,
+        output_width = ns.output_bits
     )
     
     with open(ns.filter_file, 'w') as f:

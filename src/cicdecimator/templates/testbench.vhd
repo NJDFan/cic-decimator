@@ -31,10 +31,13 @@ entity tb_{{ name }} is
 end entity tb_{{ name }};
 
 architecture Testbench of tb_{{ name }} is
+    
+    subtype t_input  is {{ dtype }}({{ input_bits-1 }} downto 0);
+    subtype t_output is {{ dtype }}({{ output_bits-1 }} downto 0);
 
-    signal in_data     : {{ input_dtype }};
+    signal in_data     : t_input;
     signal in_valid    : std_logic;
-    signal out_data    : {{ output_dtype }};
+    signal out_data    : t_output;
     signal out_valid   : std_logic;
     signal clk, {{ "arst" if async_reset else "rst" }} : std_logic;
 
@@ -43,10 +46,10 @@ architecture Testbench of tb_{{ name }} is
 
     -- In case any of the data is longer than 32 signed bits (i.e. a VHDL
     -- integer) these constants have to be defined in their native types.
-    constant INPUT_MIN : {{ input_dtype }} := "{{input_min | binstring(input_bits)}}";    -- {{ input_min }}
-    constant INPUT_MAX : {{ input_dtype }} := "{{input_max | binstring(input_bits)}}";    -- {{ input_max }}
-    constant OUTPUT_MIN : {{ output_dtype }} := "{{output_min | binstring(output_bits)}}";    -- {{ output_min }}
-    constant OUTPUT_MAX : {{ output_dtype }} := "{{output_max | binstring(output_bits)}}";    -- {{ output_max }}
+    constant INPUT_MIN : t_input    := "{{input_min | binstring(input_bits)}}";    -- {{ input_min }}
+    constant INPUT_MAX : t_input    := "{{input_max | binstring(input_bits)}}";    -- {{ input_max }}
+    constant OUTPUT_MIN : t_output  := "{{output_min | binstring(output_bits)}}";    -- {{ output_min }}
+    constant OUTPUT_MAX : t_output  := "{{output_max | binstring(output_bits)}}";    -- {{ output_max }}
 
 begin
 
@@ -97,18 +100,26 @@ begin
         -- enough time for the result to propagate.
         in_valid <= '1';
         wait for tClk * {{stages * ratio}};
-        in_valid <= '0';
+        in_valid <= '0' after tClk * {{ratio}};
         wait for tClk * {{stages * 2 - 1}};
+{{ assertions('OUTPUT_MIN') }}
+
+        -- Confirm the output is stable here
+        wait for tClk * {{ratio}};
 {{ assertions('OUTPUT_MIN') }}
         
         -- Slam the input to the maximum instead and repeat.
         in_data <= INPUT_MAX;
         in_valid <= '1';
         wait for tClk * {{stages * ratio}};
-        in_valid <= '0';
+        in_valid <= '0' after tClk * {{ratio}};
         wait for tClk * {{stages * 2 - 1}};
 {{ assertions('OUTPUT_MAX') }}
         
+        -- Confirm the output is stable here
+        wait for tClk * {{ratio}};
+{{ assertions('OUTPUT_MAX') }}
+
         -- Slam the input back to the minimum again for one more check.
         in_data <= INPUT_MIN;
         in_valid <= '1';

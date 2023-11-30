@@ -117,6 +117,8 @@ begin
         end if;
     end process SHIFT_FLAG;
 
+    stage_flag <= stage_flag_reg & in_valid;
+
     -- For any CIC filter the integrators run on the fast
     -- side, and the combs run on the slow side.  This being
     -- a decimating filter, that puts the integrators on the
@@ -153,13 +155,12 @@ begin
     -----------------------------------------------------------------------
     
     DECIMATION_COUNTER: process(clk, async_r)
-        variable counter : integer range 0 to {{ratio-1}} := 0;
     begin
         if async_r then
             counter <= 0;
             
         elsif rising_edge(clk) then
-            if stage_flag({stages-1}) = '1' then
+            if stage_flag({{stages-1}}) = '1' then
                 if decimate_flag then
                     counter <= 0;
                 else
